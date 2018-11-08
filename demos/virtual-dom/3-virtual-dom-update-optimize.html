@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="X-UA-Compatible" content="ie=edge">
+  <title>Document</title>
+</head>
+<body>
+
+<script type='text/javascript'>
+// virtual DOM 更新优化
+// 过程： state 变化，生成新的VD；比较VD与之前VD的异同；生成差异对象（patch）；遍历差异对象并更新DOM
+// 省略patch对象，直接更新dom
+
+// 差异对象的数据结构
+// {
+//   type,  --- 对应DOM元素的变化类型，新建、删除、替换、更新， 如 nodePatchTypes 
+//   vdom,
+//   props: [{
+//             type,   -- 对应的type类型 更新和删除， 如 propPatchTypes 
+//             key,
+//             value
+//          }],
+//   children
+// }
+
+const nodePatchTypes = {
+  CREATE: 'create node',
+  REMOVE: 'remove node',
+  REPLACE: 'replace node',
+  UPDATE: 'update node'
+}
+const propPatchTypes = {
+  REMOVE: 'remove prop',
+  UPDATE: 'update prop'
+}
+
+function flatten(arr) {
+  return [].concat.apply([],arr)
+}
+
+function h(tag, props, ...children) {
+  return {
+    tag,
+    props: props || {},
+    children: flatten(children) || []
+  }
+}
+
+// 创建dom元素
+function createElement(vdom) {
+  // 如果vdom是字符串或者数字类型，则创建文本节点
+  if(typeof vdom === 'string' || typeof vdom === 'number'){
+    return document.createTextNode(vdom)
+  }
+  const {tag, props, children} = vdom
+
+  // 1.创建元素
+  const element = document.createElement(tag)
+
+  // 2.属性赋值
+  setProps(element, props)
+
+  // 创建子元素
+  // appendChild在执行的时候，会检查当前的this是不是dom对象，因此要bind一下
+  children.map(createElement).forEach(element.appendChild.bind(element));
+
+  return element
+}
+
+function setProps(element, props) {
+  for(let key in props){
+    element.setAttribute(key, props[key])
+  }
+}
+
+// 代码实现
+let state = {num: 5}
+let timer,preVDom;
+
+function view() {
+  return h(
+    'div',
+    null,
+    'hello World',
+    h(
+      'ul',
+      null,
+      [...Array(state.num).keys()].map(i => 
+        h(
+          'li',
+          {id: i,class: `li-${i}`},
+          `第${i * state.num}`
+        )
+      )
+    )
+  )
+}
+
+function render(element) {
+  // 初始化VD
+  const vdom = view()
+  preVDom = vdom
+
+  const dom = createElement(vdom)
+  element.appendChild(dom)
+
+  timer = setInterval(()=>{
+    state.num +=1
+    tick(element)
+  }, 500)
+}
+
+function tick(element) {
+  if(state.num > 20){
+    clearInterval(timer)
+    return
+  }
+  const newVDom = view()
+
+  // 生成差异对象
+  diff(preVDom, newVDom,element)
+
+  preVDom = newVDom
+
+}
+
+
+
+function diff(oldVDom, newVDom, parent, index) {
+  // 新建 node
+  if(oldVDom === undefined){
+    parent.appendChild(createElement(newVDom))
+    return
+  }
+
+  let element
+  if(index === undefined){
+    element = parent.childNodes[2]
+  }else{
+    element = parent.childNodes[index]
+  }
+
+  // 删除 node
+  if(newVDom === undefined){
+    parent.removeChild(element)
+    return
+  }
+
+  // 替换 node
+  if(
+    typeof oldVDom !== typeof newVDom || 
+    ((typeof oldVDom === 'string' || typeof oldVDom === 'number') && oldVDom !== newVDom) ||
+    oldVDom.tag !== newVDom.tag  
+  ){
+    parent.replaceChild(createElement(newVDom), element)
+    return
+  }
+
+  //  更新 node
+  if(oldVDom.tag){
+    // 比较 props 变化
+    diffProps(oldVDom, newVDom, element)
+
+    // 比较 children 的变化
+    diffChildren(oldVDom, newVDom, element)
+  }
+}
+
+// 比较 props 的变化
+function diffProps(oldVDom, newVDom,element) {
+  const allProps = {...oldVDom.props,...newVDom.props}
+
+  // 获取新旧所有属性名后，再逐一判断新旧属性值
+  Object.keys(allProps).forEach((key)=> {
+    const oldValue = oldVDom.props[key]
+    const newValue = newVDom.props[key]
+
+    // 删除属性
+    if(newValue == undefined){
+      element.removeAttribute(key)
+    }
+    // 更新属性
+    else if( oldValue == undefined || oldValue !== newValue){
+      element.setAttribute(key,newValue)
+    }
+  })
+}
+
+// 比较 children 的变化
+function diffChildren(oldVDom, newVDom,parent) {
+
+  // 获取子元素最大长度
+  const childLength = Math.max(oldVDom.children.length, newVDom.children.length)
+
+  // 遍历并diff子元素
+  for (let i = 0; i < childLength; i++) {
+    diff(oldVDom.children[i], newVDom.children[i],parent,i)
+  }
+
+}
+
+render(document.body)
+</script>
+</body>
+</html>
